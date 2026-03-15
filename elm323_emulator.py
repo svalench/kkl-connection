@@ -4,7 +4,6 @@
 """
 from __future__ import annotations
 
-import time
 from typing import TypedDict
 
 from kkl import (
@@ -35,10 +34,17 @@ class ELM323Emulator:
     обменивается с авто через KKL, возвращает форматированный ответ.
     """
 
-    def __init__(self, port: str, baud: int = DEFAULT_BAUD, address: int = OBD2_ADDRESS):
+    def __init__(
+        self,
+        port: str,
+        baud: int = DEFAULT_BAUD,
+        address: int = OBD2_ADDRESS,
+        verbose: bool = False,
+    ):
         self.port = port
         self.baud = baud
         self.address = address
+        self.verbose = verbose
         self._serial = None
         self._bus_init_done = False
         self._last_command = ""
@@ -58,10 +64,18 @@ class ELM323Emulator:
             except Exception:
                 pass
             self._serial = None
-        self._serial = init_bus(self.port, self.baud, self.address)
+        if self.verbose:
+            print("[ELM323] Запуск инициализации шины...")
+        self._serial = init_bus(
+            self.port, self.baud, self.address, verbose=self.verbose
+        )
         if self._serial:
             self._bus_init_done = True
+            if self.verbose:
+                print("[ELM323] Шина инициализирована успешно")
             return True
+        if self.verbose:
+            print("[ELM323] ОШИБКА: инициализация шины не удалась")
         return False
 
     def _build_frame(self, data_bytes: list[int]) -> bytes:
@@ -128,12 +142,17 @@ class ELM323Emulator:
             return False, "BUS INIT: ... ERROR", []
 
         frame = self._build_frame(data_bytes)
+        if self.verbose:
+            print("[ELM323] OBD >> %s (кадр: %s)" % (hex_str, frame.hex()))
         send_frame(self._serial, frame)
 
         timeout_sec = self.timeout_ms / 1000.0
         self._serial.timeout = max(0.5, timeout_sec)
         raw = self._serial.read(64)
 
+        if self.verbose:
+            r = raw.hex() if raw else "нет данных (таймаут)"
+            print("[ELM323] OBD << %s" % r)
         if not raw or len(raw) < 4:
             return False, "NO DATA", []
 

@@ -29,11 +29,20 @@ def main():
         default=1.0,
         help="Интервал опроса в секундах (по умолчанию 1.0)",
     )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Подробные логи подключения и обмена",
+    )
     args = parser.parse_args()
 
-    emulator = ELM323Emulator(port=args.port, baud=args.baud)
+    emulator = ELM323Emulator(
+        port=args.port, baud=args.baud, verbose=args.verbose
+    )
     try:
-        print("Подключение к KKL на порту", args.port)
+        print("Подключение к KKL на порту %s (%d бод)" % (args.port, args.baud))
+        if args.verbose:
+            print("Режим verbose: подробные логи включены")
         run_display_loop(emulator, interval_sec=args.interval)
     except KeyboardInterrupt:
         pass
