@@ -170,7 +170,19 @@ def run_display_loop(emulator, interval_sec: float = 1.0, pids: list[str] | None
     """
     pids = pids or LIVE_PIDS
     print("\n--- Доступные контроллеры ---")
-    print(get_controllers_info(emulator))
+    info = get_controllers_info(emulator)
+    print(info)
+
+    if "недоступны" in info and "BUS INIT" in info:
+        print("\n!!! ОШИБКА ИНИЦИАЛИЗАЦИИ ШИНЫ !!!")
+        print("Причина: не удалось установить связь с ЭБУ по ISO 9141-2.")
+        print("Проверьте:")
+        print("  • Зажигание включено (ключ в положении ON)")
+        print("  • KKL кабель подключён к OBD-разъёму и к ПК")
+        print("  • Верный порт (-p) и скорость (-b 9600 или 10400)")
+        print("Для подробных логов запустите: python main.py -p <порт> -v")
+        print("")
+
     print("\n--- Текущие данные ---")
 
     try:

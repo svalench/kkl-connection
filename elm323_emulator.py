@@ -54,10 +54,13 @@ class ELM323Emulator:
         self.timeout_ms = 200  # AT ST default ~200ms (32 hex * 4ms)
         self._header = DEFAULT_HEADER_ISO9141
 
-    def _ensure_bus_init(self) -> bool:
-        """Инициализировать шину при первом обращении."""
+    def _ensure_bus_init(self) -> tuple[bool, str]:
+        """
+        Инициализировать шину при первом обращении.
+        Возвращает (success, error_reason).
+        """
         if self._bus_init_done and self._serial and self._serial.is_open:
-            return True
+            return True, ""
         if self._serial:
             try:
                 close(self._serial)
@@ -66,17 +69,18 @@ class ELM323Emulator:
             self._serial = None
         if self.verbose:
             print("[ELM323] Запуск инициализации шины...")
-        self._serial = init_bus(
+        ser, err = init_bus(
             self.port, self.baud, self.address, verbose=self.verbose
         )
-        if self._serial:
+        if ser:
+            self._serial = ser
             self._bus_init_done = True
             if self.verbose:
                 print("[ELM323] Шина инициализирована успешно")
-            return True
+            return True, ""
         if self.verbose:
-            print("[ELM323] ОШИБКА: инициализация шины не удалась")
-        return False
+            print("[ELM323] ОШИБКА: %s" % err)
+        return False, err
 
     def _build_frame(self, data_bytes: list[int]) -> bytes:
         """Собрать полный кадр ISO 9141: 3 заголовка + данные + checksum."""
@@ -138,8 +142,9 @@ class ELM323Emulator:
 
         self._last_command = hex_str
 
-        if not self._ensure_bus_init():
-            return False, "BUS INIT: ... ERROR", []
+        ok, init_err = self._ensure_bus_init()
+        if not ok:
+            return False, "BUS INIT: " + init_err, []
 
         frame = self._build_frame(data_bytes)
         if self.verbose:

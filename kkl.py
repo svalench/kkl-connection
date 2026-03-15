@@ -37,34 +37,35 @@ def send_5_baud_init(port_name: str, address: int = OBD2_ADDRESS, verbose: bool 
 
 def iso_9141_handshake(
     ser: serial.Serial, address: int = OBD2_ADDRESS, verbose: bool = False
-) -> bool:
+) -> tuple[bool, str]:
     """
     После 5-baud init ЭБУ присылает 0x55 (Sync), KW1, KW2.
     Тестер отправляет inv(KW2), ЭБУ отвечает inv(address).
+    Возвращает (success, error_reason).
     """
     ser.timeout = 1.5
     _log(verbose, "Handshake: ожидание Sync (0x55)...")
     sync = ser.read(1)
     if not sync:
         _log(verbose, "Handshake: таймаут — Sync не получен (нет данных)")
-        return False
+        return False, "Sync timeout (ЭБУ не ответил 0x55)"
     _log(verbose, "Handshake: получен байт 0x%02X (ожидался 0x55)", sync[0])
     if sync != b'\x55':
         _log(verbose, "Handshake: ОШИБКА — неверный Sync, ожидался 0x55")
-        return False
+        return False, "Invalid Sync 0x%02X (ожидался 0x55)" % sync[0]
 
     _log(verbose, "Handshake: ожидание KW1...")
     kw1 = ser.read(1)
     if not kw1:
         _log(verbose, "Handshake: таймаут — KW1 не получен")
-        return False
+        return False, "KW1 timeout"
     _log(verbose, "Handshake: KW1 = 0x%02X", kw1[0])
 
     _log(verbose, "Handshake: ожидание KW2...")
     kw2 = ser.read(1)
     if not kw2:
         _log(verbose, "Handshake: таймаут — KW2 не получен")
-        return False
+        return False, "KW2 timeout"
     _log(verbose, "Handshake: KW2 = 0x%02X", kw2[0])
 
     inv_kw2 = bytes([kw2[0] ^ 0xFF])
@@ -77,13 +78,13 @@ def iso_9141_handshake(
     expected_ack = address ^ 0xFF
     if not ack:
         _log(verbose, "Handshake: таймаут — ACK не получен")
-        return False
+        return False, "ACK timeout"
     _log(verbose, "Handshake: получен ACK 0x%02X (ожидался 0x%02X)", ack[0], expected_ack)
     if ack[0] != expected_ack:
         _log(verbose, "Handshake: ОШИБКА — неверный ACK")
-        return False
+        return False, "Invalid ACK 0x%02X (ожидался 0x%02X)" % (ack[0], expected_ack)
     _log(verbose, "Handshake: OK — связь установлена")
-    return True
+    return True, ""
 
 
 def open_kkl(port: str, baud: int = DEFAULT_BAUD, verbose: bool = False) -> serial.Serial:
@@ -100,10 +101,10 @@ def init_bus(
     baud: int = DEFAULT_BAUD,
     address: int = OBD2_ADDRESS,
     verbose: bool = False,
-) -> serial.Serial | None:
+) -> tuple[serial.Serial | None, str]:
     """
     Полная инициализация: 5-baud init, переключение на рабочую скорость, handshake.
-    Возвращает открытый serial или None при ошибке.
+    Возвращает (serial, error_reason). При успехе: (ser, ""), при ошибке: (None, "причина").
     """
     _log(verbose, "=== Инициализация шины ISO 9141-2 ===")
     _log(verbose, "Порт: %s, скорость: %d, адрес: 0x%02X", port, baud, address)
@@ -111,19 +112,21 @@ def init_bus(
     try:
         send_5_baud_init(port, address, verbose=verbose)
     except Exception as e:
+        err = "Порт %s: %s" % (port, str(e))
         _log(verbose, "init_bus: ОШИБКА 5-baud init: %s", str(e))
-        return None
+        return None, err
 
     ser = open_kkl(port, baud, verbose=verbose)
 
     _log(verbose, "Запуск handshake...")
-    if iso_9141_handshake(ser, address, verbose=verbose):
+    ok, err = iso_9141_handshake(ser, address, verbose=verbose)
+    if ok:
         _log(verbose, "=== BUS INIT: OK ===")
-        return ser
+        return ser, ""
 
-    _log(verbose, "init_bus: handshake не прошёл — шина не инициализирована")
+    _log(verbose, "init_bus: handshake не прошёл — %s", err)
     ser.close()
-    return None
+    return None, err
 
 
 def send_frame(ser: serial.Serial, data: bytes) -> None:
