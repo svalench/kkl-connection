@@ -40,11 +40,13 @@ class ELM323Emulator:
         baud: int = DEFAULT_BAUD,
         address: int = OBD2_ADDRESS,
         verbose: bool = False,
+        try_fast_init: bool = True,
     ):
         self.port = port
         self.baud = baud
         self.address = address
         self.verbose = verbose
+        self.try_fast_init = try_fast_init
         self._serial = None
         self._bus_init_done = False
         self._last_command = ""
@@ -53,6 +55,7 @@ class ELM323Emulator:
         self.linefeed = True
         self.timeout_ms = 200  # AT ST default ~200ms (32 hex * 4ms)
         self._header = DEFAULT_HEADER_ISO9141
+        self._protocol = "iso9141"  # или "kwp2000"
 
     def _ensure_bus_init(self) -> tuple[bool, str]:
         """
@@ -69,52 +72,68 @@ class ELM323Emulator:
             self._serial = None
         if self.verbose:
             print("[ELM323] Запуск инициализации шины...")
-        ser, err = init_bus(
-            self.port, self.baud, self.address, verbose=self.verbose
+        ser, err, proto = init_bus(
+            self.port,
+            self.baud,
+            self.address,
+            verbose=self.verbose,
+            try_fast_first=self.try_fast_init,
         )
         if ser:
             self._serial = ser
             self._bus_init_done = True
+            self._protocol = proto or "iso9141"
             if self.verbose:
-                print("[ELM323] Шина инициализирована успешно")
+                print("[ELM323] Шина инициализирована (%s)" % self._protocol)
             return True, ""
         if self.verbose:
             print("[ELM323] ОШИБКА: %s" % err)
         return False, err
 
     def _build_frame(self, data_bytes: list[int]) -> bytes:
-        """Собрать полный кадр ISO 9141: 3 заголовка + данные + checksum."""
-        h0, h1, h2 = self._header
-        all_bytes = [h0, h1, h2] + data_bytes
-        # Checksum: сумма всех байт mod 256 = 0
+        """Собрать кадр: ISO 9141 или KWP2000."""
+        if self._protocol == "kwp2000":
+            # KWP2000: [0xC0|len] 33 F1 data... checksum
+            length_byte = 0xC0 | len(data_bytes)
+            all_bytes = [length_byte, 0x33, 0xF1] + data_bytes
+        else:
+            # ISO 9141: 68 6A F1 data... checksum (sum=0)
+            h0, h1, h2 = self._header
+            all_bytes = [h0, h1, h2] + data_bytes
+
         s = sum(all_bytes) & 0xFF
         checksum = (0x100 - s) & 0xFF
         return bytes(all_bytes + [checksum])
 
     def _parse_response(self, raw: bytes | None) -> tuple[bool, str, list[str]]:
         """
-        Разбор ответа ЭБУ.
+        Разбор ответа ЭБУ (ISO 9141 или KWP2000).
         Возвращает (success, error_msg, data_lines).
-        data_lines — список строк вида "41 05 7B" (без заголовков по умолчанию).
         """
         if not raw or len(raw) < 5:
             return False, "NO DATA", []
 
-        # Проверка checksum: сумма всех байт mod 256 должна быть 0
         if sum(raw) & 0xFF != 0:
-            # Возвращаем данные с пометкой об ошибке (как <DATA ERROR)
-            data_hex = " ".join(f"{b:02X}" for b in raw[3:-1])
+            if self._protocol == "kwp2000":
+                data = raw[3:-1] if len(raw) > 4 else []
+            else:
+                data = raw[3:-1]
+            data_hex = " ".join(f"{b:02X}" for b in data)
             return False, "<DATA ERROR", [data_hex] if self.headers else []
 
-        # Данные: байты 3..-1 (без 3 байт заголовка и checksum)
-        data = raw[3:-1]
+        if self._protocol == "kwp2000":
+            # KWP: [len] [target] [source] [data...] [checksum]
+            data = raw[3:-1]
+        else:
+            # ISO 9141: [h0 h1 h2] [data...] [checksum]
+            data = raw[3:-1]
+
         if not data:
             return False, "NO DATA", []
 
-        # Форматируем в строки
         data_hex = " ".join(f"{b:02X}" for b in data)
         if self.headers:
-            header_hex = " ".join(f"{raw[i]:02X}" for i in range(3))
+            header_hex = " ".join(f"{raw[i]:02X}" for i in range(min(3, len(raw))))
             lines = [f"{header_hex} {data_hex}"]
         else:
             lines = [data_hex]

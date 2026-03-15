@@ -20,8 +20,8 @@ def main():
     parser.add_argument(
         "-b", "--baud",
         type=int,
-        default=9600,
-        help="Скорость порта (9600 или 10400 для VAG, по умолчанию 9600)",
+        default=10400,
+        help="Скорость порта (10400 для K-Line по стандарту, 9600 — для некоторых авто)",
     )
     parser.add_argument(
         "-i", "--interval",
@@ -34,10 +34,18 @@ def main():
         action="store_true",
         help="Подробные логи подключения и обмена",
     )
+    parser.add_argument(
+        "--no-fast-init",
+        action="store_true",
+        help="Только ISO 9141-2 slow init (5-baud), без KWP2000 fast init",
+    )
     args = parser.parse_args()
 
     emulator = ELM323Emulator(
-        port=args.port, baud=args.baud, verbose=args.verbose
+        port=args.port,
+        baud=args.baud,
+        verbose=args.verbose,
+        try_fast_init=not args.no_fast_init,
     )
     try:
         print("Подключение к KKL на порту %s (%d бод)" % (args.port, args.baud))
