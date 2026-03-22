@@ -3,7 +3,9 @@
 доступных контроллеров и текущих параметров в человекочитаемом виде.
 """
 import argparse
+import logging
 
+from kkl import configure_ftdi_port
 from elm323_emulator import ELM323Emulator
 from obd_display import run_display_loop
 
@@ -39,7 +41,30 @@ def main():
         action="store_true",
         help="Только ISO 9141-2 slow init (5-baud), без KWP2000 fast init",
     )
+    parser.add_argument(
+        "--pids",
+        type=str,
+        default=None,
+        help="Список PID/сервисов через запятую (напр. 010D,010C,03)",
+    )
+    parser.add_argument(
+        "--latency",
+        action="store_true",
+        help="Попытаться выставить FTDI USB latency timer = 1 ms (Linux / подсказка Windows)",
+    )
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+
+    if args.latency:
+        configure_ftdi_port(args.port)
+
+    pids_list = None
+    if args.pids:
+        pids_list = [p.strip().upper().replace(" ", "") for p in args.pids.split(",") if p.strip()]
 
     emulator = ELM323Emulator(
         port=args.port,
@@ -51,7 +76,7 @@ def main():
         print("Подключение к KKL на порту %s (%d бод)" % (args.port, args.baud))
         if args.verbose:
             print("Режим verbose: подробные логи включены")
-        run_display_loop(emulator, interval_sec=args.interval)
+        run_display_loop(emulator, interval_sec=args.interval, pids=pids_list)
     except KeyboardInterrupt:
         pass
     finally:

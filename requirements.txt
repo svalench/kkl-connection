@@ -1,4 +1,3 @@
-future==1.0.0
-iso8601==2.1.0
-PyYAML==6.0.3
+# Не ставить пакет `serial` с PyPI — это не pyserial и ломает `serial.Serial`.
 pyserial>=3.5
+pytest>=7.0
